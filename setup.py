@@ -58,23 +58,13 @@ def should_require_rust_frontend() -> bool:
     return value.lower() not in ("", "0", "false", "no")
 
 
-rust_extensions = rust_build.rust_extensions(
-    optional=not should_require_rust_frontend()
-)
-
-
 def get_precompiled_rust_extension_paths() -> list[Path]:
     return sorted((ROOT_DIR / "vllm").glob(PRECOMPILED_RUST_EXTENSION_GLOB))
 
 
-def get_expected_rust_extension_module_names() -> list[str]:
-    """Return configured PyO3 Rust extension module names under ``vllm``."""
-    return rust_build.rust_py_extension_module_names(rust_extensions)
-
-
 def get_missing_precompiled_rust_extension_modules() -> list[str]:
     missing = []
-    for module_name in get_expected_rust_extension_module_names():
+    for module_name in rust_build.rust_py_extension_module_names():
         if not list((ROOT_DIR / "vllm").glob(f"{module_name}*.so")):
             missing.append(module_name)
     return missing
@@ -454,17 +444,6 @@ class precompiled_build_rust(build_rust):
     """Skips local Rust builds when all precompiled Rust artifacts are present."""
 
     def run(self) -> None:
-        if (
-            PRECOMPILED_RUST_FRONTEND_PATH.exists()
-            and has_precompiled_rust_extensions()
-        ):
-            logger.info(
-                "Skipping local Rust build: using precompiled %s and %s",
-                PRECOMPILED_RUST_FRONTEND_PATH,
-                get_precompiled_rust_extension_paths(),
-            )
-            return
-
         missing = []
         if not PRECOMPILED_RUST_FRONTEND_PATH.exists():
             missing.append(str(PRECOMPILED_RUST_FRONTEND_PATH))
@@ -474,6 +453,15 @@ class precompiled_build_rust(build_rust):
                 str(ROOT_DIR / "vllm" / f"{module_name}*.so")
                 for module_name in missing_rust_extensions
             )
+
+        if not missing:
+            logger.info(
+                "Skipping local Rust build: using precompiled %s and %s",
+                PRECOMPILED_RUST_FRONTEND_PATH,
+                get_precompiled_rust_extension_paths(),
+            )
+            return
+
         logger.warning(
             "Precompiled wheel did not provide all Rust artifacts (%s); "
             "falling back to local Rust build.",
@@ -1201,6 +1189,12 @@ if (
     or has_precompiled_rust_extensions()
 ):
     cmdclass["build_rust"] = precompiled_build_rust
+
+# Rust artifacts, built via setuptools-rust and installed into the package
+# directory alongside the Python modules.
+rust_extensions = rust_build.rust_extensions(
+    optional=not should_require_rust_frontend()
+)
 
 setup(
     # static metadata should rather go in pyproject.toml
